@@ -186,4 +186,21 @@ class SNFCloud(AnsibleModule):
 
 
 if __name__ == '__main__':
-    self.fail_json(changed=False, msg="Not implemented yet")
+    module = SNFCloud(
+        argument_spec={
+            'state': {
+                'default': 'present',
+                'choices': ['absent', 'present', 'stopped', 'active']},
+            'ca_certs': {'required': False, 'type': 'str'},
+            'cloud_url': {'required': True, 'type': 'str'},
+            'cloud_token': {'required': True, 'type': 'str'},
+            'project_id': {'required': False, 'type': 'str'},
+            'vm_name': {'required': True, 'type': 'str'},
+            'image_id': {'required': True, 'type': 'str'},
+            'flavor_id': {'required': True, 'type': 'str'},
+            'ssh_key': {'required': False, 'type': 'str'},
+            'private_network': {'required': False, 'type': 'str'},
+            'public_ip': {'required': False, 'type': 'bool'},
+        }
+    )
+    module.exit_json(changed=True, msg="Cyclades operation failed")
