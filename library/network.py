@@ -8,6 +8,10 @@ from kamaki.cli import logging
 from kamaki.clients.utils import https
 from ansible.module_utils.basic import AnsibleModule
 
+from kamaki.cli.logger import add_file_logger
+add_file_logger('kamaki.clients.send', filename='/tmp/my_kamaki.log')
+add_file_logger('kamaki.clients.recv', filename='/tmp/my_kamaki.log')
+CycladesNetworkClient.LOG_DATA = True
 
 class SNFPrivateNetwork(SNFCloud):
     """Synnefo network class, based on kamaki
@@ -52,21 +56,19 @@ class SNFPrivateNetwork(SNFCloud):
                     return net
         return None
 
-    def create_subnet(self, id_, subnet_name):
-        cidr, dhcp = self.params.get('dhcp'), self.params.get('cidr')
+    def create_subnet(self, id_):
+        cidr, dhcp = self.params.get('cidr'), self.params.get('hdcp')
         try:
-            self.network.create_subnet(
-                id_, cidr, name=subnet_name, enable_dhcp=dhcp)
+            return self.network.create_subnet(id_, cidr, enable_dhcp=dhcp)
         except ClientError as e:
             self.fail_json(
-                msg="Failed to create subnet with name {}".format(subnet_name),
-                msg_details=e.message)
+                msg="Failed to create subnet=", msg_details=e.message)
 
     def create(self):
         name = self.params.get('name')
-        cidr, dhcp = self.params.get('dhcp'), self.params.get('cidr')
         try:
-            net = self.network.create_network(type='MAC_FILTERED', name=name)
+            return self.network.create_network(
+                type='MAC_FILTERED', name=name, project_id=self.project_id)
         except ClientError as e:
             self.fail_json(
                 msg="Failed to create network with name {}".format(name),
@@ -95,21 +97,24 @@ class SNFPrivateNetwork(SNFCloud):
            If no id is provided, we make sure there exists a network with this
            name
         """
+        changed = False
         name = self.params.get('name')
         net = self.discover_network()
-        if net and net['name'] != name:
+        if not net:
+            net = self. create()
+            changed = True
+        if net['name'] != name:
             try:
-                return dict(
-                    changed=True,
-                    msg=self.network.update_network(net['id'], name=name))
+                net = self.network.update_network(net['id'], name=name)
             except ClientError:
                 self.fail_json(
                     msg="Failed to update network", msg_details=e.message)
-        if net:
-            return dict(changed=False, msg=net)
-        net = self.create()
-        subnet = self.create_subnet(net['id'], '{}-subnet'.format(name))
-        return net
+            changed = True
+        if self.params.get('cidr') and not net['subnets']:
+            subnet = self.create_subnet(net['id'])
+            net['subnets'].append(subnet['id'])
+            changed = True
+        return dict(changed=changed, msg=net)
 
 
 if __name__ == '__main__':
@@ -124,11 +129,9 @@ if __name__ == '__main__':
             'id': {'required': False, 'type': 'str'},
             'name': {'required': False, 'type': 'str'},
             'cidr': {'required': False, 'type': 'str'},
-            'dhcp': {'required': False, 'type': 'str'},
+            'dhcp': {'required': False, 'type': 'bool'},
         },
-        required_if=[
-            ['dhcp', True, ['name', 'cidr', ]],
-        ]
+        required_if=(('dhcp', True, ('cidr', )), ),
     )
     result = {
         'absent': module.absent,
