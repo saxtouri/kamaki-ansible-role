@@ -8,10 +8,6 @@ from kamaki.cli import logging
 from kamaki.clients.utils import https
 from ansible.module_utils.basic import AnsibleModule
 
-from kamaki.cli.logger import add_file_logger
-add_file_logger('kamaki.clients.send', filename='/tmp/my_kamaki.log')
-add_file_logger('kamaki.clients.recv', filename='/tmp/my_kamaki.log')
-CycladesNetworkClient.LOG_DATA = True
 
 class SNFPrivateNetwork(SNFCloud):
     """Synnefo network class, based on kamaki
@@ -50,9 +46,9 @@ class SNFPrivateNetwork(SNFCloud):
                 self.fail_json(
                     msg='Error while looking for network',
                     msg_details=e.message)
-        else:
+        elif name:
             for net in self.network.list_networks(detail=True):
-                if self.params['name'] == net['name']:
+                if name == net['name']:
                     return net
         return None
 
@@ -125,13 +121,15 @@ if __name__ == '__main__':
             'ca_certs': {'required': False, 'type': 'str'},
             'cloud_url': {'required': True, 'type': 'str'},
             'cloud_token': {'required': True, 'type': 'str'},
-            'project_id': {'required': False, 'type': 'str'},
+            'project_id': {'required': True, 'type': 'str'},
             'id': {'required': False, 'type': 'str'},
             'name': {'required': False, 'type': 'str'},
             'cidr': {'required': False, 'type': 'str'},
             'dhcp': {'required': False, 'type': 'bool'},
         },
-        required_if=(('dhcp', True, ('cidr', )), ),
+        required_if=(
+            ('dhcp', True, ('cidr', )),
+        ),
     )
     result = {
         'absent': module.absent,
