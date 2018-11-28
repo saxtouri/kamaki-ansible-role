@@ -13,28 +13,28 @@ class SNFServer(SNFCloud):
     """Synnefo server class, based on kamaki
        Create, delete, start, stop, reboot, etc.
     """
-    _cyclades, _network = None, None
+    _compute, _network = None, None
 
     def __init__(self, *args, **kw):
-        super(SNFCloud, self).__init__(*args, **kw)
+        super(SNFServer, self).__init__(*args, **kw)
 
     # General purpose SNF methods and properties
     @property
-    def cyclades(self):
-        if not self._cyclades:
+    def compute(self):
+        if not self._compute:
             try:
                 url = self.astakos.get_endpoint_url('compute')
             except ClientError as e:
                 module.fail_json(
-                    msg="Cyclades api endpoint retrieval failed",
+                    msg="Compute api endpoint retrieval failed",
                     msg_details=e.message)
             try:
-                return CycladesClient(url, self.token)
+                self._compute = CycladesClient(url, self.token)
             except ClientError as e:
                 module.fail_json(
-                    msg="Cyclades Client initialization failed",
+                    msg="Compute Client initialization failed",
                     msg_details=e.message)
-        return self._cyclades
+        return self._compute
 
     @property
     def network(self):
@@ -53,47 +53,36 @@ class SNFServer(SNFCloud):
                     msg_details=e.message)
         return self._network
 
-    def stop_vm(self, vm_id):
+    # auxiliary methods
+    def discover(self):
+        id_, name = self.params.get('id'), self.params.get('name')
+        if id_:
+            try:
+                return self.compute.get_server_details(id_)
+            except ClientError as e:
+                if e.status in (404, ):
+                    return None
+                self.fail_json(
+                    msg='Error while looking up VM', msg_details=e.message)
         try:
-            res = self.cyclades.shutdown_server(vm_id)
-        except ClientError as e:
-            self.fail_json(msg="Failed to stop VM", msg_details=e.message)
-        try:
-            new_state = self.cyclades.wait_server_until(vm_id, 'STOPPED')
-        except Exception as e:
-            new_state = 'UNKNOWN'
-        if new_state['status'] == 'STOPPED':
-            self.exit_json(
-                changed=True, vm_name=self.params['vm_name'], vm_id=vm_id,
-                msg="vm is now stopped!")
-        self.exit_json(
-            changed=True, vm_name=self.params['vm_name'], vm_id=vm_id,
-            msg="vm is stopping...")
-
-    def start_vm(self, vm_id):
-        try:
-            res = self.cyclades.start_server(vm_id)
-        except ClientError as e:
-            self.fail_json(msg="Failed to start VM", msg_details=e.message)
-            return
-        if self.params['wait']:
-            new_state = self.cyclades.wait_server_until(vm_id, 'ACTIVE')
-            if new_state['status'] == 'ACTIVE':
-                self.exit_json(
-                    changed=True, vm_name=self.params['vm_name'],
-                    vm_id=vm_id, msg="vm is now active!")
-                return
-        self.exit_json(
-            changed=True, vm_name=self.params['vm_name'], vm_id=vm_id,
-            msg="vm is booting...")
-
-    def discover_vm(self, vm_name):
-        try:
-            for vm in self.cyclades.list_servers(detail=True):
-                if vm_name == vm['name']:
+            for vm in self.compute.list_servers(detail=True):
+                if name == vm['name']:
                     return vm
         except ClientError as e:
             self.fail_json(msg="Could not list VMs", msg_details=e.message)
+        return None
+
+    def discover_ip(self):
+        """Discover the IP with given IP or address"""
+        id_ = self.params.get('public_ip_id')
+        if id_:
+            try:
+                return self.network.get_floatingip_details(id_)
+            except ClientError as e:
+                if e.status in (404, ):
+                    return None
+                self.fail_json(
+                    msg='Error while looking for ip', msg_details=e.message)
         return None
 
     def upload_keys_to_keyring(self, keys_path):
@@ -102,7 +91,7 @@ class SNFServer(SNFCloud):
         if keys_path:
             try:
                 existing_keys = map(
-                    lambda x: x['keypair'], self.cyclades.list_keypairs())
+                    lambda x: x['keypair'], self.compute.list_keypairs())
             except ClientError as e:
                 self.fail_json(
                     msg="Failed to get keypairs", msg_details=e.message)
@@ -118,7 +107,7 @@ class SNFServer(SNFCloud):
                     offset += 1
                     new_key_name = '{}{}'.format(self.KEY_PREFIX, offset)
                 try:
-                    new_key = self.cyclades.create_key(
+                    new_key = self.compute.create_key(
                         key_name=new_key_name, public_key=key)
                 except ClientError as e:
                     self.fail_json(
@@ -127,21 +116,112 @@ class SNFServer(SNFCloud):
                 key_names.append(new_key_name)
         return key_names
 
-    def create_vm(self, vm_name):
-        self.fail_json(changed=False, msg="Not implemented yet")
+    def create(self):
+        name = self.params.get('name')
+        image_id = self.params.get('image_id')
+        flavor_id = self.params.get('flavor_id')
+        ssh_key = self.params.get('ssh_key')
 
-    def snf_delete_vm(self, vm_id):
+        net_id = self.params.get('priv_net_id')
+        networks = [{'uuid': net_id}] if net_id else []
+        ip = self.discover_ip()
+        if ip:
+            networks.append({
+                'uuid': ip['floating_network_id'],
+                'floating_ip_address': ip['floating_ip_address']})
         try:
-            self.cyclades.delete_server(vm_id)
+            vm = self.compute.create_server(
+                name=name, image_id=image_id, flavor_id=flavor_id,
+                project_id=self.project_id, key_name=ssh_key,
+                networks=networks)
         except ClientError as e:
-            self.fail_json(msg="Error deleting VM", msg_details=e.message)
+            self.fail_json(
+                msg='Failed to create server', msg_details=e.message)
+        if self.params.get('wait'):
+            try:
+                vm = self.compute.wait_server_while(vm['id'], 'BUILD')
+            except ClientError as e:
+                self.fail_json(msg='This is bad', msg_details=e.message)
+                pass
+        return vm
+
+    def delete(self, vm_id):
         try:
-            self.cyclades.wait_server_while(vm_id, 'ACTIVE')
-            self.exit_json(
-                changed=True, msg="VM {} is now deleted!".format(vm_id))
+            self.compute.delete_server(vm_id)
         except ClientError as e:
-            self.exit_json(
-                changed=True, msg="deleting vm with id {} ...".format(vm_id))
+            if 'Server has been deleted' not in e.message:
+                self.fail_json(
+                    msg="Error deleting VM", msg_details=e.message)
+        if self.params.get('wait'):
+            try:
+                self.compute.wait_server_until(vm_id, 'DELETED')
+            except ClientError as e:
+                pass
+
+    # Functions
+    def present(self):
+        """Make sure a VM with given features exist
+           Create it, if not exist, modify what is modifiable otherwise
+        """
+        vm, changed = self.discover(), False
+        if not vm:
+            vm = self.create()
+            changed = True
+        else:
+            name = self.params['name']
+            if name and name != vm['name']:
+                try:
+                    self.compute.update_server_name(vm['id'], name)
+                    changed = True
+                except ClientError as e:
+                    self.fail_json(
+                        msg='Failed to changed server name',
+                        msg_details=e.message)
+        return dict(changed=changed, msg=vm)
+
+    def absent(self):
+        """Make sure VM is not there (e.g., delete it)"""
+        vm = self.discover()
+        if not vm:
+            return dict(changed=False, msg='VM not found')
+        self.delete(vm['id'])
+        return dict(changed=True, msg='VM is now deleted')
+
+    def active(self):
+        vm = self.discover()
+        if not vm:
+            self.fail_json(msg='Cannot find VM to start')
+        if vm['status'] == 'ACTIVE':
+            return dict(changed=False, msg=vm)
+        try:
+            self.compute.start_server(vm['id'])
+        except ClientError as e:
+            self.fail_json(msg="Failed to start VM", msg_details=e.message)
+            return
+        if self.params['wait']:
+            try:
+                vm = self.compute.wait_server_until(vm['id'], 'ACTIVE')
+            except ClientError:
+                pass
+        return dict(changed=True, msg=vm)
+
+    def stopped(self):
+        vm = self.discover()
+        if not vm:
+            self.fail_json(msg='Cannot find VM to stop')
+        if vm['status'] == 'STOPPED':
+            return dict(changed=False, msg=vm)
+        try:
+            self.compute.shutdown_server(vm['id'])
+        except ClientError as e:
+            self.fail_json(msg="Failed to stop VM", msg_details=e.message)
+            return
+        if self.params['wait']:
+            try:
+                vm = self.compute.wait_server_until(vm['id'], 'STOPPED')
+            except ClientError:
+                pass
+        return dict(changed=True, msg=vm)
 
 
 if __name__ == '__main__':
@@ -149,17 +229,28 @@ if __name__ == '__main__':
         argument_spec={
             'state': {
                 'default': 'present',
-                'choices': ['absent', 'present', 'stopped', 'active']},
+                'choices': ['present', 'absent', 'stopped', 'active']},
             'ca_certs': {'required': False, 'type': 'str'},
             'cloud_url': {'required': True, 'type': 'str'},
             'cloud_token': {'required': True, 'type': 'str'},
-            'project_id': {'required': False, 'type': 'str'},
-            'vm_name': {'required': True, 'type': 'str'},
-            'image_id': {'required': True, 'type': 'str'},
-            'flavor_id': {'required': True, 'type': 'str'},
+            'project_id': {'required': True, 'type': 'str'},
+            'id': {'required': False, 'type': 'str'},
+            'name': {'required': False, 'type': 'str'},
+            'image_id': {'required': False, 'type': 'str'},
+            'flavor_id': {'required': False, 'type': 'str'},
             'ssh_key': {'required': False, 'type': 'str'},
-            'private_network': {'required': False, 'type': 'str'},
-            'public_ip': {'required': False, 'type': 'bool'},
-        }
+            'priv_net_id': {'required': False, 'type': 'str'},
+            'public_ip_id': {'required': False, 'type': 'bool'},
+            'wait': {'default': True, 'type': 'bool'},
+        },
+        required_if=(
+            ('state', 'present', ['name', 'image_id', 'flavor_id', ]),
+        ),
     )
-    module.exit_json(changed=False, msg="Cyclades operation failed".format())
+    result = {
+        'absent': module.absent,
+        'present': module.present,
+        'stopped': module.stopped,
+        'active': module.active,
+    }[module.params['state']]()
+    module.exit_json(**result)

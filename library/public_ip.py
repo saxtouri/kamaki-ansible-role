@@ -42,11 +42,10 @@ class SNFPublicIP(SNFCloud):
             try:
                 return self.network.get_floatingip_details(id_)
             except ClientError as e:
-                if e.status_code in (404, ):
+                if e.status in (404, ):
                     return None
                 self.fail_json(
-                    msg='Error while looking for ip',
-                    msg_details=e.message)
+                    msg='Error while looking for ip', msg_details=e.message)
         elif address:
             for ip in self.network.list_floatingips():
                 if address == ip['floating_ip_address']:

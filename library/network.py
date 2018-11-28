@@ -35,13 +35,13 @@ class SNFPrivateNetwork(SNFCloud):
                     msg_details=e.message)
         return self._network
 
-    def discover_network(self):
+    def discover(self):
         id_, name = self.params.get('id'), self.params.get('name')
         if id_:
             try:
                 return self.network.get_network_details(id_)
             except ClientError as e:
-                if e.status_code in (404, ):
+                if e.status in (404, ):
                     return None
                 self.fail_json(
                     msg='Error while looking for network',
@@ -75,13 +75,13 @@ class SNFPrivateNetwork(SNFCloud):
         """Make sure a given network does not exist
            Networks are identified by id or name, in that order
         """
-        net = self.discover_network()
+        net = self.discover()
         if net:
             try:
                 self.network.delete_network(net['id'])
                 return dict(changed=True, msg='Network deleted')
             except ClientError as e:
-                if e.status_code not in (404, ):
+                if e.status not in (404, ):
                     self.fail_json(
                         msg="Error deleting network", msg_details=e.message)
         return dict(changed=False, msg="No such network")
@@ -95,7 +95,7 @@ class SNFPrivateNetwork(SNFCloud):
         """
         changed = False
         name = self.params.get('name')
-        net = self.discover_network()
+        net = self.discover()
         if not net:
             net = self. create()
             changed = True
