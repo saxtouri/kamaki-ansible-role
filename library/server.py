@@ -141,7 +141,6 @@ class SNFServer(SNFCloud):
             try:
                 vm = self.compute.wait_server_while(vm['id'], 'BUILD')
             except ClientError as e:
-                self.fail_json(msg='This is bad', msg_details=e.message)
                 pass
         return vm
 
@@ -177,6 +176,38 @@ class SNFServer(SNFCloud):
                     self.fail_json(
                         msg='Failed to changed server name',
                         msg_details=e.message)
+
+            priv_net_id = self.params.get('priv_net_id')
+            if priv_net_id and priv_net_id not in vm['addresses']:
+                try:
+                    port = self.network.create_port(priv_net_id, vm['id'])
+                except ClientError as e:
+                    self.fail_json(
+                        msg='Failed to connect server to network',
+                        msg_details=e.message)
+                changed = True
+                if self.params.get('wait'):
+                    try:
+                        self.network.wait_port_until(port['id'], 'ACTIVE')
+                    except ClientError:
+                        pass
+
+            ip = self.discover_ip()
+            ip4s = [att['ipv4'] for att in vm['attachments'] if att['ipv4']]
+            if ip and ip['floating_ip_address'] not in ip4s:
+                try:
+                    port = self.network.create_port(
+                        ip['floating_network_id'], vm['id'],
+                        fixed_ips=[{'ip_address': ip['floating_ip_address']}])
+                except ClientError as e:
+                    self.fail_json(
+                        msg='Failed to attach IP to server',
+                        msg_details=e.message)
+                if self.params.get('wait'):
+                    try:
+                        self.network.wait_port_until(port['id'], 'ACTIVE')
+                    except ClientError:
+                        pass
         return dict(changed=changed, msg=vm)
 
     def absent(self):

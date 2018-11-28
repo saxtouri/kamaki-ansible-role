@@ -89,7 +89,7 @@ class SNFPublicIP(SNFCloud):
                         msg='Failed to disconnect IP', msg_details=e.message)
             if self.params.get('wait'):
                 try:
-                    self.network.wait_port_while('ACTIVE')
+                    self.network.wait_port_while(port_id, 'ACTIVE')
                 except ClientError:
                     pass
                 return dict(changed=True, msg='IP disconnected')
