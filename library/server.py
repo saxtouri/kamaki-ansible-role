@@ -9,7 +9,7 @@ from kamaki.clients.utils import https
 from ansible.module_utils.basic import AnsibleModule
 
 
-class SNFServer(SNFCloud):
+class SNFServer(AnsibleModule):
     """Synnefo server class, based on kamaki
        Create, delete, start, stop, reboot, etc.
     """
@@ -17,19 +17,25 @@ class SNFServer(SNFCloud):
 
     def __init__(self, *args, **kw):
         super(SNFServer, self).__init__(*args, **kw)
+        self.cloud = self.params.get('cloud')
+        ca_certs = self.cloud.get('ca_certs')
+        if ca_certs:
+            try:
+                https.patch_with_certs(ca_certs)
+            except Exception as e:
+                self.fail_json(
+                    msg="Certificates (ca_certs) failed to patch kamaki",
+                    msg_details=e.message)
+        else:
+            https.patch_ignore_ssl()
 
     # General purpose SNF methods and properties
     @property
     def compute(self):
         if not self._compute:
+            url, token = self.cloud['compute_url'], self.cloud['cloud_token']
             try:
-                url = self.astakos.get_endpoint_url('compute')
-            except ClientError as e:
-                module.fail_json(
-                    msg="Compute api endpoint retrieval failed",
-                    msg_details=e.message)
-            try:
-                self._compute = CycladesClient(url, self.token)
+                self._compute = CycladesClient(url, token)
             except ClientError as e:
                 module.fail_json(
                     msg="Compute Client initialization failed",
@@ -39,14 +45,9 @@ class SNFServer(SNFCloud):
     @property
     def network(self):
         if not self._network:
+            url, token = self.cloud['network_url'], self.cloud['cloud_token']
             try:
-                url = self.astakos.get_endpoint_url('network')
-            except ClientError as e:
-                self.fail_json(
-                    msg="Network api endpoint retrieval failed",
-                    msg_details=e.message)
-            try:
-                self._network = CycladesNetworkClient(url, self.token)
+                self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
                 self.fail_json(
                     msg="Network Client initialization failed",
@@ -132,7 +133,7 @@ class SNFServer(SNFCloud):
         try:
             vm = self.compute.create_server(
                 name=name, image_id=image_id, flavor_id=flavor_id,
-                project_id=self.project_id, key_name=ssh_key,
+                project_id=self.cloud.get('project_id'), key_name=ssh_key,
                 networks=networks)
         except ClientError as e:
             self.fail_json(
@@ -261,10 +262,7 @@ if __name__ == '__main__':
             'state': {
                 'default': 'present',
                 'choices': ['present', 'absent', 'stopped', 'active']},
-            'ca_certs': {'required': False, 'type': 'str'},
-            'cloud_url': {'required': True, 'type': 'str'},
-            'cloud_token': {'required': True, 'type': 'str'},
-            'project_id': {'required': True, 'type': 'str'},
+            'cloud': {'required': True, 'type': 'dict'},
             'id': {'required': False, 'type': 'str'},
             'name': {'required': False, 'type': 'str'},
             'image_id': {'required': False, 'type': 'str'},

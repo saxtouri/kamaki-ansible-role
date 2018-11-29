@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # Copyright 2018 Stavros Sachtouris <saxtouri@grnet.gr>
-from ansible.module_utils.synnefo import SNFCloud
 from kamaki.clients import ClientError
 from kamaki.clients.cyclades import CycladesClient, CycladesNetworkClient
 from kamaki.clients.network import NetworkClient
@@ -9,7 +8,7 @@ from kamaki.clients.utils import https
 from ansible.module_utils.basic import AnsibleModule
 
 
-class SNFPublicIP(SNFCloud):
+class SNFPublicIP(AnsibleModule):
     """Synnefo network class, based on kamaki
        Create, delete, start, stop, reboot, etc. a private network
     """
@@ -17,18 +16,24 @@ class SNFPublicIP(SNFCloud):
 
     def __init__(self, *args, **kw):
         super(SNFPublicIP, self).__init__(*args, **kw)
+        self.cloud = self.params.get('cloud')
+        ca_certs = self.cloud.get('ca_certs')
+        if ca_certs:
+            try:
+                https.patch_with_certs(ca_certs)
+            except Exception as e:
+                self.fail_json(
+                    msg="Certificates (ca_certs) failed to patch kamaki",
+                    msg_details=e.message)
+        else:
+            https.patch_ignore_ssl()
 
     @property
     def network(self):
         if not self._network:
+            url, token = self.cloud['network_url'], self.cloud['cloud_token']
             try:
-                url = self.astakos.get_endpoint_url('network')
-            except ClientError as e:
-                self.fail_json(
-                    msg="Network api endpoint retrieval failed",
-                    msg_details=e.message)
-            try:
-                self._network = CycladesNetworkClient(url, self.token)
+                self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
                 self.fail_json(
                     msg="Network Client initialization failed",
@@ -57,7 +62,7 @@ class SNFPublicIP(SNFCloud):
         try:
             return self.network.create_floatingip(
                 floating_ip_address=self.params.get('address'),
-                project_id=self.project_id)
+                project_id=self.cloud.get('project_id'))
         except ClientError as e:
             self.fail_json(
                 msg="Failed to create floating IP", msg_details=e.message)
@@ -74,6 +79,8 @@ class SNFPublicIP(SNFCloud):
         return self.reserve()
 
     def discover_port(self, port_id):
+        if not port_id:
+            return None
         try:
             return self.network.get_port_details(port_id)
         except ClientError as e:
@@ -172,10 +179,7 @@ if __name__ == '__main__':
             'state': {
                 'default': 'present',
                 'choices': ['absent', 'present', 'connected', 'disconnected']},
-            'ca_certs': {'required': False, 'type': 'str'},
-            'cloud_url': {'required': True, 'type': 'str'},
-            'cloud_token': {'required': True, 'type': 'str'},
-            'project_id': {'required': True, 'type': 'str'},
+            'cloud': {'required': True, 'type': 'dict'},
             'id': {'required': False, 'type': 'str'},
             'address': {'required': False, 'type': 'str'},
             'vm_id': {'required': False, 'type': 'str'},

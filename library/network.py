@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # Copyright 2018 Stavros Sachtouris <saxtouri@grnet.gr>
-from ansible.module_utils.synnefo import SNFCloud
 from kamaki.clients import ClientError
 from kamaki.clients.cyclades import CycladesClient, CycladesNetworkClient
 from kamaki.clients.network import NetworkClient
@@ -9,7 +8,7 @@ from kamaki.clients.utils import https
 from ansible.module_utils.basic import AnsibleModule
 
 
-class SNFPrivateNetwork(SNFCloud):
+class SNFPrivateNetwork(AnsibleModule):
     """Synnefo network class, based on kamaki
        Create, delete, start, stop, reboot, etc. a private network
     """
@@ -17,18 +16,24 @@ class SNFPrivateNetwork(SNFCloud):
 
     def __init__(self, *args, **kw):
         super(SNFPrivateNetwork, self).__init__(*args, **kw)
+        self.cloud = self.params.get('cloud')
+        ca_certs = self.cloud.get('ca_certs')
+        if ca_certs:
+            try:
+                https.patch_with_certs(ca_certs)
+            except Exception as e:
+                self.fail_json(
+                    msg="Certificates (ca_certs) failed to patch kamaki",
+                    msg_details=e.message)
+        else:
+            https.patch_ignore_ssl()
 
     @property
     def network(self):
         if not self._network:
+            url, token = self.cloud['network_url'], self.cloud['cloud_token']
             try:
-                url = self.astakos.get_endpoint_url('network')
-            except ClientError as e:
-                self.fail_json(
-                    msg="Network api endpoint retrieval failed",
-                    msg_details=e.message)
-            try:
-                self._network = CycladesNetworkClient(url, self.token)
+                self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
                 self.fail_json(
                     msg="Network Client initialization failed",
@@ -64,7 +69,8 @@ class SNFPrivateNetwork(SNFCloud):
         name = self.params.get('name')
         try:
             return self.network.create_network(
-                type='MAC_FILTERED', name=name, project_id=self.project_id)
+                type='MAC_FILTERED', name=name,
+                project_id=self.cloud.get('project_id'))
         except ClientError as e:
             self.fail_json(
                 msg="Failed to create network with name {}".format(name),
@@ -74,7 +80,8 @@ class SNFPrivateNetwork(SNFCloud):
         try:
             ports = self.network.list_ports()
         except ClientError as e:
-            self.fail_json(msg='Failed to list ports', msg_details=e.message)
+            self.fail_json(
+                msg='Failed to list ports', msg_details=e.message)
         vm_id = self.params.get('vm_id')
         for port in ports:
             if all((
@@ -111,10 +118,10 @@ class SNFPrivateNetwork(SNFCloud):
         if not net:
             net = self. create()
             changed = True
-        if net['name'] != name:
+        if name and net['name'] != name:
             try:
                 net = self.network.update_network(net['id'], name=name)
-            except ClientError:
+            except ClientError as e:
                 self.fail_json(
                     msg="Failed to update network", msg_details=e.message)
             changed = True
@@ -168,10 +175,7 @@ if __name__ == '__main__':
             'state': {
                 'default': 'present',
                 'choices': ['absent', 'present', 'connected', 'disconnected']},
-            'ca_certs': {'required': False, 'type': 'str'},
-            'cloud_url': {'required': True, 'type': 'str'},
-            'cloud_token': {'required': True, 'type': 'str'},
-            'project_id': {'required': True, 'type': 'str'},
+            'cloud': {'required': True, 'type': 'dict'},
             'id': {'required': False, 'type': 'str'},
             'name': {'required': False, 'type': 'str'},
             'cidr': {'required': False, 'type': 'str'},
