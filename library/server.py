@@ -271,7 +271,7 @@ if __name__ == '__main__':
             'flavor_id': {'required': False, 'type': 'str'},
             'ssh_key': {'required': False, 'type': 'str'},
             'priv_net_id': {'required': False, 'type': 'str'},
-            'public_ip_id': {'required': False, 'type': 'bool'},
+            'public_ip_id': {'required': False, 'type': 'str'},
             'wait': {'default': True, 'type': 'bool'},
         },
         required_if=(
