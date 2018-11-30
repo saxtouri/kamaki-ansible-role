@@ -16,7 +16,7 @@ class SNFPrivateNetwork(AnsibleModule):
 
     def __init__(self, *args, **kw):
         super(SNFPrivateNetwork, self).__init__(*args, **kw)
-        self.cloud = self.params.get('cloud')
+        self.cloud = self.params.get('cloud').get('cloud')
         ca_certs = self.cloud.get('ca_certs')
         if ca_certs:
             try:
@@ -31,7 +31,7 @@ class SNFPrivateNetwork(AnsibleModule):
     @property
     def network(self):
         if not self._network:
-            url, token = self.cloud['network_url'], self.cloud['cloud_token']
+            url, token = self.cloud.get('network_url'), self.cloud.get('token')
             try:
                 self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
@@ -116,7 +116,7 @@ class SNFPrivateNetwork(AnsibleModule):
         name = self.params.get('name')
         net = self.discover()
         if not net:
-            net = self. create()
+            net = self.create()
             changed = True
         if name and net['name'] != name:
             try:
@@ -129,7 +129,7 @@ class SNFPrivateNetwork(AnsibleModule):
             subnet = self.create_subnet(net['id'])
             net['subnets'].append(subnet['id'])
             changed = True
-        return dict(changed=changed, msg=net)
+        return dict(changed=changed, network=net)
 
     def connected(self):
         net, vm_id = self.discover(), self.params.get('vm_id')
@@ -137,7 +137,7 @@ class SNFPrivateNetwork(AnsibleModule):
             self.fail_json(msg='Network does not exist')
         port = self.discover_port(net['id'])
         if port:
-            return dict(changed=False, msg=port)
+            return dict(changed=False, port=port)
         try:
             port = self.network.create_port(net['id'], vm_id)
         except ClientError as e:
@@ -148,7 +148,7 @@ class SNFPrivateNetwork(AnsibleModule):
                 port = self.network.wait_port_until(port['id'], 'ACTIVE')
             except ClientError as e:
                 pass
-        return dict(changed=True, msg=port)
+        return dict(changed=True, port=port)
 
     def disconnected(self):
         net = self.discover()

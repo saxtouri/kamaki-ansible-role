@@ -52,8 +52,8 @@ class SNFCloud(AnsibleModule):
         if not self._astakos:
             try:
                 self._astakos = AstakosClient(
-                    self.params.get('cloud_url'),
-                    self.params.get('cloud_token'))
+                    self.params.get('url'),
+                    self.params.get('token'))
             except ClientError as e:
                 self.fail_json(
                     msg="Astakos Client initialization failed",
@@ -70,18 +70,18 @@ class SNFCloud(AnsibleModule):
 
     def present(self):
         cloud = {key: module.params.get(key) for key in (
-            'cloud_url', 'cloud_token', 'project_id', 'ca_certs')}
+            'url', 'token', 'project_id', 'ca_certs')}
         cloud['compute_url'] = self.get_api_url('compute')
         cloud['network_url'] = self.get_api_url('network')
-        return dict(changed=True, msg=cloud)
+        return dict(changed=True, cloud=cloud)
 
 
 if __name__ == '__main__':
     module = SNFCloud(
         argument_spec={
             'ca_certs': {'required': False, 'type': 'str'},
-            'cloud_url': {'required': True, 'type': 'str'},
-            'cloud_token': {'required': True, 'type': 'str'},
+            'url': {'required': True, 'type': 'str'},
+            'token': {'required': True, 'type': 'str'},
             'project_id': {'required': False, 'type': 'str'},
         },
         required_if=(('state', 'connected', ('vm_id', )), )

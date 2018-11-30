@@ -16,7 +16,7 @@ class SNFPublicIP(AnsibleModule):
 
     def __init__(self, *args, **kw):
         super(SNFPublicIP, self).__init__(*args, **kw)
-        self.cloud = self.params.get('cloud')
+        self.cloud = self.params.get('cloud').get('cloud')
         ca_certs = self.cloud.get('ca_certs')
         if ca_certs:
             try:
@@ -31,7 +31,7 @@ class SNFPublicIP(AnsibleModule):
     @property
     def network(self):
         if not self._network:
-            url, token = self.cloud['network_url'], self.cloud['cloud_token']
+            url, token = self.cloud.get('network_url'), self.cloud.get('token')
             try:
                 self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
@@ -94,18 +94,18 @@ class SNFPublicIP(AnsibleModule):
         """
         ip = self.discover()
         if ip:
-            port_id = ip['port_id']
+            port_id = ip.get('port_id')
             if port_id:
                 try:
                     self.network.delete_port(port_id)
                 except ClientError as e:
                     self.fail_json(
                         msg='Failed to disconnect IP', msg_details=e.message)
-            if self.params.get('wait'):
-                try:
-                    self.network.wait_port_while(port_id, 'ACTIVE')
-                except ClientError:
-                    pass
+                if self.params.get('wait'):
+                    try:
+                        self.network.wait_port_while(port_id, 'ACTIVE')
+                    except ClientError:
+                        pass
                 return dict(changed=True, msg='IP disconnected')
             return dict(changed=False, msg="IP not used")
         return dict(changed=False, msg="No such IP")
@@ -116,10 +116,10 @@ class SNFPublicIP(AnsibleModule):
         """
         ip = self.discover()
         if ip:
-            return dict(changed=False, msg=ip)
+            return dict(changed=False, ip=ip)
         if self.params.get('address'):
-            return dict(changed=True, msg=self.reserve())
-        return dict(changed=True, msg=self.next_available())
+            return dict(changed=True, ip=self.reserve())
+        return dict(changed=True, ip=self.next_available())
 
     def connected(self):
         """Make sure this IP is connected to this vm.
@@ -132,7 +132,7 @@ class SNFPublicIP(AnsibleModule):
         if port_id:
             port = self.discover_port(port_id)
             if port['device_id'] == vm_id:
-                return dict(changed=False, msg=port)
+                return dict(changed=False, port=port)
             return self.fail_json(msg='IP used by another VM')
         try:
             port = self.network.create_port(
@@ -146,7 +146,7 @@ class SNFPublicIP(AnsibleModule):
                 port = self.network.wait_port_until(port['id'], 'ACTIVE')
             except ClientError:
                 pass
-        return dict(changed=True, msg=port)
+        return dict(changed=True, port=port)
 
     def disconnected(self):
         ip = self.discover()

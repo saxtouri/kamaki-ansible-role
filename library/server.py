@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # Copyright 2018 Stavros Sachtouris <saxtouri@grnet.gr>
-from ansible.module_utils.synnefo import SNFCloud
 from kamaki.clients import ClientError
 from kamaki.clients.cyclades import CycladesClient, CycladesNetworkClient
 from kamaki.clients.network import NetworkClient
@@ -17,7 +16,11 @@ class SNFServer(AnsibleModule):
 
     def __init__(self, *args, **kw):
         super(SNFServer, self).__init__(*args, **kw)
-        self.cloud = self.params.get('cloud')
+        self.cloud = self.params.get('cloud').get('cloud')
+        privnet = self.params.get('network')
+        self.privnet = privnet.get('network') if privnet else dict()
+        ip = self.params.get('public_ip')
+        self.ip = ip.get('ip') if ip else dict()
         ca_certs = self.cloud.get('ca_certs')
         if ca_certs:
             try:
@@ -33,7 +36,7 @@ class SNFServer(AnsibleModule):
     @property
     def compute(self):
         if not self._compute:
-            url, token = self.cloud['compute_url'], self.cloud['cloud_token']
+            url, token = self.cloud.get('compute_url'), self.cloud.get('token')
             try:
                 self._compute = CycladesClient(url, token)
             except ClientError as e:
@@ -45,7 +48,7 @@ class SNFServer(AnsibleModule):
     @property
     def network(self):
         if not self._network:
-            url, token = self.cloud['network_url'], self.cloud['cloud_token']
+            url, token = self.cloud.get('network_url'), self.cloud.get('token')
             try:
                 self._network = CycladesNetworkClient(url, token)
             except ClientError as e:
@@ -75,7 +78,10 @@ class SNFServer(AnsibleModule):
 
     def discover_ip(self):
         """Discover the IP with given IP or address"""
-        id_ = self.params.get('public_ip_id')
+        required = {'id', 'floating_ip_address', 'floating_network_id'}
+        if not required.difference(self.ip):
+            return self.ip
+        id_, address = self.ip.get('id'), self.ip.get('floating_ip_address')
         if id_:
             try:
                 return self.network.get_floatingip_details(id_)
@@ -84,6 +90,11 @@ class SNFServer(AnsibleModule):
                     return None
                 self.fail_json(
                     msg='Error while looking for ip', msg_details=e.message)
+        elif address:
+            for ip in self.network.list_floatingips():
+                if address == ip['floating_ip_address']:
+                    self.ip = ip
+                    return self.ip
         return None
 
     def upload_keys_to_keyring(self, keys_path):
@@ -123,7 +134,7 @@ class SNFServer(AnsibleModule):
         flavor_id = self.params.get('flavor_id')
         ssh_key = self.params.get('ssh_key')
 
-        net_id = self.params.get('priv_net_id')
+        net_id = self.privnet.get('id')
         networks = [{'uuid': net_id}] if net_id else []
         ip = self.discover_ip()
         if ip:
@@ -178,10 +189,10 @@ class SNFServer(AnsibleModule):
                         msg='Failed to changed server name',
                         msg_details=e.message)
 
-            priv_net_id = self.params.get('priv_net_id')
-            if priv_net_id and priv_net_id not in vm['addresses']:
+            net_id = self.privnet.get('id')
+            if net_id and net_id not in vm['addresses']:
                 try:
-                    port = self.network.create_port(priv_net_id, vm['id'])
+                    port = self.network.create_port(net_id, vm['id'])
                 except ClientError as e:
                     self.fail_json(
                         msg='Failed to connect server to network',
@@ -209,7 +220,7 @@ class SNFServer(AnsibleModule):
                         self.network.wait_port_until(port['id'], 'ACTIVE')
                     except ClientError:
                         pass
-        return dict(changed=changed, msg=vm)
+        return dict(changed=changed, server=vm)
 
     def absent(self):
         """Make sure VM is not there (e.g., delete it)"""
@@ -224,7 +235,7 @@ class SNFServer(AnsibleModule):
         if not vm:
             self.fail_json(msg='Cannot find VM to start')
         if vm['status'] == 'ACTIVE':
-            return dict(changed=False, msg=vm)
+            return dict(changed=False, server=vm)
         try:
             self.compute.start_server(vm['id'])
         except ClientError as e:
@@ -235,14 +246,14 @@ class SNFServer(AnsibleModule):
                 vm = self.compute.wait_server_until(vm['id'], 'ACTIVE')
             except ClientError:
                 pass
-        return dict(changed=True, msg=vm)
+        return dict(changed=True, server=vm)
 
     def stopped(self):
         vm = self.discover()
         if not vm:
             self.fail_json(msg='Cannot find VM to stop')
         if vm['status'] == 'STOPPED':
-            return dict(changed=False, msg=vm)
+            return dict(changed=False, server=vm)
         try:
             self.compute.shutdown_server(vm['id'])
         except ClientError as e:
@@ -253,7 +264,7 @@ class SNFServer(AnsibleModule):
                 vm = self.compute.wait_server_until(vm['id'], 'STOPPED')
             except ClientError:
                 pass
-        return dict(changed=True, msg=vm)
+        return dict(changed=True, server=vm)
 
 
 if __name__ == '__main__':
@@ -268,8 +279,8 @@ if __name__ == '__main__':
             'image_id': {'required': False, 'type': 'str'},
             'flavor_id': {'required': False, 'type': 'str'},
             'ssh_key': {'required': False, 'type': 'str'},
-            'priv_net_id': {'required': False, 'type': 'str'},
-            'public_ip_id': {'required': False, 'type': 'str'},
+            'network': {'required': False, 'type': 'dict'},
+            'public_ip': {'required': False, 'type': 'dict'},
             'wait': {'default': True, 'type': 'bool'},
         },
         required_if=(
