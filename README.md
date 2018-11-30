@@ -15,3 +15,25 @@ Version 0.1
 -----------
 Expose basic operations (create, delete, query) for Synnefo compute resources:
 VMs, public IPs, private networks, ssh keys and volumes.
+
+
+Version 0.2
+-----------
+There are five modules, exchanging information through playbook. Check the
+"example.yml" for an example.
+
+Here are the modules:
+- cloud: authenticate cloud credentials. Result used by every other module
+	as input.
+- server: create or destroy a VM.
+- network: create or destroy a private network. Also, connect or disconnect
+	VMs on an existing network.
+- public_ip: create, reserve or destroy a public ip v4. Also, connect or
+	disconnect it to a VM. A reserved IP is not destroyed with this module,
+	it is only freed (to be used later, probably). Can be used to move IPs
+	between VMs.
+- keypair: Public/Private ssh key pair to be used with VMs. It can discover
+	existing keys by name or public key, or create a new pair. In the later
+	case, you may need to copy the private key to a file. Private keys are
+	generated only once, so make sure to get it while it is still there.
+	See "example.yml" for more details.

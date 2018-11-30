@@ -1,0 +1,67 @@
+---
+- name: Test VM creation
+  hosts: localhost
+  tasks:
+    - name: Authenticate cloud
+      cloud:
+        ca_certs='/etc/ssl/certs/ca-certificates.crt'
+        url='https://astakos.okeanos-knossos.grnet.gr/identity/v2.0'
+        token='pMbDFiGgB_6kr85vbyc7-GgJalFuUYpwIaGrUjCrkgE'
+        project_id='a1a3e902-616c-455e-9c15-383edb9f47ad'
+      register: cloud
+    - name: Create PPK
+      keypair:
+        cloud={{ cloud }}
+        name='My keypair'
+      register: ppk
+    - name: Save private key
+      copy:
+        content={{ ppk.keypair.private_key }}
+        dest=/tmp/my_private.key
+      register: saved_key
+    - name: Create private network
+      network:
+        cloud={{ cloud }}
+        name='my temp net'
+        dhcp=True
+        cidr='192.168.0.0/24'
+      register: pnet
+    - name: Create IP
+      public_ip:
+        cloud={{ cloud }}
+        # address='83.212.73.217'
+      register: ip
+    - name: Create VM
+      server:
+        cloud={{ cloud }}
+        name='My temp VM'
+        flavor_id=260
+        image_id='051669a1-835a-4e01-995e-1d21c74839c7'
+        public_ip={{ ip }}
+        network={{ pnet }}
+        keypair={{ ppk }}
+      register: vm
+    - name: Free IP
+      public_ip:
+        state=absent
+        cloud={{ cloud }}
+        id={{ ip.ip.id }}
+      register: ip_deleted
+    - name: Destroy VM
+      server:
+        state=absent
+        cloud={{ cloud }}
+        id={{ vm.server.id }}
+      register: vm_deleted
+    - name: Destroy private network
+      network:
+        state=absent
+        cloud={{ cloud }}
+        id={{ pnet.network.id }}
+      register: pnet_deleted
+    - name: Delete keypair
+      keypair:
+        state=absent
+        cloud={{ cloud }}
+        name={{ ppk.keypair.name }}
+      register: ppk_deleted
