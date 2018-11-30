@@ -21,6 +21,8 @@ class SNFServer(AnsibleModule):
         self.privnet = privnet.get('network') if privnet else dict()
         ip = self.params.get('public_ip')
         self.ip = ip.get('ip') if ip else dict()
+        keypair = self.params.get('keypair')
+        self.keypair = keypair.get('keypair') if keypair else dict()
         ca_certs = self.cloud.get('ca_certs')
         if ca_certs:
             try:
@@ -97,42 +99,10 @@ class SNFServer(AnsibleModule):
                     return self.ip
         return None
 
-    def upload_keys_to_keyring(self, keys_path):
-        """Check what keys are there, upload what is missing"""
-        key_names = None
-        if keys_path:
-            try:
-                existing_keys = map(
-                    lambda x: x['keypair'], self.compute.list_keypairs())
-            except ClientError as e:
-                self.fail_json(
-                    msg="Failed to get keypairs", msg_details=e.message)
-            with open(keys_path) as f:
-                keys = [line.strip() for line in f.readlines() if line.strip()]
-            key_names = [key['name'] for key in existing_keys if (
-                key['public_key'] in keys)]
-            new_keys = set(keys).difference(
-                map(lambda x: x['public_key'], existing_keys))
-            offset, new_key_name = 1, '{}1'.format(self.KEY_PREFIX)
-            for key in new_keys:
-                while new_key_name in key_names:
-                    offset += 1
-                    new_key_name = '{}{}'.format(self.KEY_PREFIX, offset)
-                try:
-                    new_key = self.compute.create_key(
-                        key_name=new_key_name, public_key=key)
-                except ClientError as e:
-                    self.fail_json(
-                        msg="Pub key did not upload {} to keyring".format(key),
-                        msg_details=e.message)
-                key_names.append(new_key_name)
-        return key_names
-
     def create(self):
         name = self.params.get('name')
         image_id = self.params.get('image_id')
         flavor_id = self.params.get('flavor_id')
-        ssh_key = self.params.get('ssh_key')
 
         net_id = self.privnet.get('id')
         networks = [{'uuid': net_id}] if net_id else []
@@ -144,8 +114,8 @@ class SNFServer(AnsibleModule):
         try:
             vm = self.compute.create_server(
                 name=name, image_id=image_id, flavor_id=flavor_id,
-                project_id=self.cloud.get('project_id'), key_name=ssh_key,
-                networks=networks)
+                project_id=self.cloud.get('project_id'),
+                key_name=self.keypair.get('name'), networks=networks)
         except ClientError as e:
             self.fail_json(
                 msg='Failed to create server', msg_details=e.message)
@@ -278,7 +248,7 @@ if __name__ == '__main__':
             'name': {'required': False, 'type': 'str'},
             'image_id': {'required': False, 'type': 'str'},
             'flavor_id': {'required': False, 'type': 'str'},
-            'ssh_key': {'required': False, 'type': 'str'},
+            'keypair': {'required': False, 'type': 'dict'},
             'network': {'required': False, 'type': 'dict'},
             'public_ip': {'required': False, 'type': 'dict'},
             'wait': {'default': True, 'type': 'bool'},
