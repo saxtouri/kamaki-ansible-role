@@ -1,0 +1,3 @@
+- src: git+https://github.com/saxtouri/kamaki-ansible-role.git
+  version: master
+
