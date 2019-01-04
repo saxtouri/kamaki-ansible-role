@@ -7,9 +7,9 @@ To install the role, make sure you have `kamaki` installed (see [1]), e.g.:
 $ pip install git+https://github.com/grnet/kamaki.git
 ```  
   
- To install the `kamaki-ansible-role`, use `examles/requirements.yml` file. We suggest you copy the content of this file to your project `requirements.tml` file:
+ To install the `kamaki-ansible-role`, use `examles/requirements.yml` file. We suggest you copy the content of this file to your project `requirements.yml` file:
 ```
-$ ansible-galaxy -r requirements.yml
+$ ansible-galaxy install -r requirements.yml
 ```
 
 To use the role, create a playbook similar to `examples/playbook.yml`, or like the following:

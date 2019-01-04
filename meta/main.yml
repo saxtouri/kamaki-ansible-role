@@ -1,1 +1,5 @@
-galaxy_info: author="Stavros Sachtouris saxtouri@grnet.gr"
+galaxy_info:
+  role_name: kamaki-ansible-role
+  author: Stavros Sachtouris saxtouri@grnet.gr
+  description:  An ansible role to manage Synnefo-based clouds like ~okeanos or okeanos-knossos, based on kamaki
+  license: Apache
